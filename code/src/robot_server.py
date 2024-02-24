@@ -14,6 +14,7 @@ import traceback
 import numpy as np
 
 from phone_sensors import PhoneSensors
+import motor
 
 def print_log_info(obj):
     print(obj)
@@ -133,6 +134,7 @@ class Motion:
         self.loop_thread = None
         self.server_time = -1
         self.phone_sensors = PhoneSensors("10.194.232.216:8080")
+        self.started = False
 
     @xmlrpc_export(has_retval=True)
     def ping(self):
@@ -149,23 +151,45 @@ class Motion:
         Starts the motion loop in a separate thread.
         """
         def loop_func():
-            while True:
-                self._loop()
+            while self.started:
                 self.server_time = time.monotonic()
+                self._loop()
                 time.sleep(0.05)
 
+        self.started = True
         self.loop_thread = Thread(group=None, target=loop_func, name="motion:loop")
         self.loop_thread.start()
+        self.motor1 = motor_module.Motor({
+            "pins": {
+                "speed": 13,
+                "control1": 5,
+                "control2": 6
+            }
+        })
+        self.motor2 = motor_module.Motor({
+            "pins": {
+                "speed": 12,
+                "control1": 7,
+                "control2": 8
+            }
+        })
+        self.motor1.stop()
+        self.motor2.stop()
 
     def _loop(self):
         """Main loop of motion. Should poll sensors and push commands to component drivers."""
         self.phone_sensors.loop()
 
+    @xmlrpc_export
+    def get_sensor_data(self):
+        return self.phone_sensors.get_all_data()
 
     @xmlrpc_export
     def shutdown(self):
         """Shut down the motion xml rpc server. Shuts down each component and updates status of the robot."""
-        pass
+        self.started = False
+        self.loop_thread.join()
+        self.loop_thread = None
 
     @xmlrpc_export
     def get_time(self):

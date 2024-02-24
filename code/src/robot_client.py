@@ -97,6 +97,7 @@ if __name__ == "__main__":
     while True:
         print(robot.ping())
         print(robot.get_time())
+        print(robot.get_sensor_data())
         time.sleep(2)
         continue
     robot.shutdown()

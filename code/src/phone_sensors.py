@@ -1,5 +1,7 @@
 import requests
 
+import numpy as np
+
 from utils.plot_ringbuffer import ArrayRingBuffer
 from utils.math import *
 
@@ -8,8 +10,8 @@ class PhoneSensors:
     def __init__(self, address):
         self.address = address
         self.data_buffer = np
-        # time, raw: accel, gravity, rotvec
-        self.data_buffer = ArrayRingBuffer(20, 1+3+3+4)
+        # time, raw: accel, gravity, rotvec, rotvec_accuracy
+        self.data_buffer = ArrayRingBuffer(20, 1+3+3+5)
         self.timestep = 0
         self.latest_sensor_time = -1
 
@@ -58,6 +60,26 @@ class PhoneSensors:
                 rot_idx += 1
                 
             self.timestep += 1
-        grav = in
+
+            if grav_idx == len(grav_t):
+                grav = grav_dat[grav_idx-1]
+            else:
+                grav = interpolate(grav_t[grav_idx-1], grav_dat[grav_idx-1, :],
+                        grav_t[grav_idx-2], grav_dat[grav_idx-2, :],
+                        accel_time)
+            if rot_idx == len(rot_t):
+                rot = rot_dat[rot_idx-1]
+            else:
+                rot = interpolate(rot_t[rot_idx-1], rot_dat[rot_idx-1, :],
+                        rot_t[rot_idx-2], rot_dat[rot_idx-2, :],
+                        accel_time)
+            dat = [accel_time, *accels[i, :], *grav, *rot]
+            self.data_buffer.add_data(dat)
+
         self.latest_sensor_time = times[-1]
 
+    def get_latest_data(self):
+        return self.data_buffer.get_data()[-1, :]
+
+    def get_all_data(self):
+        return self.data_buffer.get_data()
