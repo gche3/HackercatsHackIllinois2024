@@ -1,5 +1,6 @@
 import time
 
+import rpyc
 import requests
 import numpy as np
 
@@ -23,7 +24,6 @@ accel_zero_ticks = 100
 timestep = 0
 
 latest = 0
-latest_grav = 0
 
 while True:
     x = requests.get("http://10.194.232.216:8080/sensors.json").json()
@@ -91,7 +91,6 @@ while True:
 
     plt.clf()
     dat = v_buf.get_data()
-    import rpyc
     plot = rpyc.async_(plt.plot)
     plot(dat[:, 0], dat[:, 1], label="x")
     plot(dat[:, 0], dat[:, 2], label="y")
