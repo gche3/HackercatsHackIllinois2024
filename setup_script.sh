@@ -7,4 +7,6 @@ cp vimrc.txt ~/.vimrc
 
 echo "export EDITOR=vim" >> ~/.bashrc
 
+pip install -r requirements.txt --break-system-packages
+
 #sh openvins_setup.sh
