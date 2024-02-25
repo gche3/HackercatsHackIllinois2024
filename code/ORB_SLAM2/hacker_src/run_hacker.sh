@@ -1,0 +1,1 @@
+./hacker 10.192.173.150 5000 /camera /pose ../Vocabulary/ORBvoc.txt hacker.yaml
