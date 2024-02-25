@@ -43,6 +43,9 @@ def get_pose_slam(prev_pose_time):
 def show_robot(pos, theta, R=0.1):
     x1 = pos + np.array([R*np.cos(theta), R*np.sin(theta)])
     plt.plot([pos[0], x1[0]], [pos[1], x1[1]])
+    circle = plt.Circle(pos, 0.05, color='b')
+    ax = plt.gca()
+    ax.add_patch(circle)
 
 while True:
     plt.clf()

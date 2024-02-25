@@ -134,13 +134,11 @@ if __name__ == "__main__":
     robot.startup()
     def get_pose():
         return robot.get_pos()
-
-    path1 = [(0, 0), (0.6, -0.9), (0.0, -1.5), (-0.6, -2.4)]
-    #path1 = [(0, 0), (0.5, 0), (0.5, 0.5), (0.25, 0.5)]
-    #path2 = [(0.5, 0.5), (0, 0.5), (0, 0), (0.25, 0)]
     kv = 1.5
     radius = 0.1
     speed = 1
+
+    path1 = [(0, 0), (0.6, -0.9), (0.0, -1.5), (-0.6, -2.3)]
 
     for path in [path1]:
         follower = PurePursuit(path, radius, speed, kv)
@@ -152,6 +150,22 @@ if __name__ == "__main__":
             #cmd = [cmd[0], cmd[1] * -1]
             print(cmd, cur)
             print(follower.get_lookahead(cur))
+            robot.motor_command(cmd[0] + cmd[1], cmd[0] - cmd[1])
+
+        robot.motor_command(0, 0)
+
+    robot.motor_command(1, -1)
+    time.sleep(1)
+
+    path1 = [(-0.6, -2.3), (0.0, -1.5), (0.6, -0.9), (0.0, 0.0)]
+
+    for path in [path1]:
+        follower = PurePursuit(path, radius, speed, kv)
+        while True:
+            cur = get_pose()
+            done, cmd = follower.step(cur)
+            if done:
+                break
             robot.motor_command(cmd[0] + cmd[1], cmd[0] - cmd[1])
 
         robot.motor_command(0, 0)

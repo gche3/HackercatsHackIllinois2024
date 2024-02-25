@@ -7,7 +7,17 @@ from purepursuit import PurePursuit
 
 from camera_server.server_api import server_get
 
-if __name__ == "__main__":
+robot = MotionClient()
+robot.startup()
+def get_pose():
+    return robot.get_pos()
+
+def main():
+
+    kv = 1.5
+    radius = 0.1
+    speed = 1
+
     while True:
         rssi_info = server_get("/rssi")
         print("waiting", rssi_info)
@@ -15,33 +25,53 @@ if __name__ == "__main__":
             break
         time.sleep(1)
     while True:
-        rssi_info = requests.get(server_url+"/rssi").json()
+        rssi_info = server_get("/rssi")
         print("primed", rssi_info)
         if rssi_info['distance'] <= 1:
             break
         time.sleep(1)
 
-    robot = MotionClient()
-    robot.startup()
-    def get_pose():
-        return robot.get_pos()
+    path1 = [(0, 0), (0.6, -0.9), (0.0, -1.5), (-0.6, -2.3)]
 
-    path1 = [(0, 0), (0.5, 0), (0.5, 0.5), (0.25, 0.5)]
-    path2 = [(0.5, 0.5), (0, 0.5), (0, 0), (0.25, 0)]
-    kv = 1.5
-    radius = 0.1
-    speed = 1
-
-    for path in [path1, path2]:
+    for path in [path1]:
         follower = PurePursuit(path, radius, speed, kv)
         while True:
             cur = get_pose()
             done, cmd = follower.step(cur)
             if done:
                 break
-            #cmd = [cmd[0], cmd[1] * -1]
-            print(cmd, cur)
-            print(follower.get_lookahead(cur))
             robot.motor_command(cmd[0] + cmd[1], cmd[0] - cmd[1])
 
         robot.motor_command(0, 0)
+
+    while True:
+        rssi_info = server_get("/rssi")
+        print("primed2", rssi_info)
+        if rssi_info['distance'] > 1:
+            break
+        time.sleep(1)
+
+    robot.motor_command(1, -1)
+    time.sleep(1)
+    path1 = [(-0.6, -2.3), (0.0, -1.5), (0.6, -0.9), (0.0, 0.0)]
+
+    for path in [path1]:
+        follower = PurePursuit(path, radius, speed, kv)
+        while True:
+            cur = get_pose()
+            done, cmd = follower.step(cur)
+            if done:
+                break
+            robot.motor_command(cmd[0] + cmd[1], cmd[0] - cmd[1])
+
+        robot.motor_command(0, 0)
+    while True:
+        rssi_info = server_get("/rssi")
+        print("waiting again", rssi_info)
+        if rssi_info['distance'] <= 1:
+            break
+        time.sleep(1)
+
+while True:
+    main()
+
