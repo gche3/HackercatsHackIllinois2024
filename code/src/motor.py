@@ -1,6 +1,9 @@
 from typing import TypedDict
 from gpiozero import PWMLED
-from src.led import LED
+try:
+    from src.led import LED
+except ImportError:
+    from led import LED
 
 
 class PinsConfig(TypedDict):

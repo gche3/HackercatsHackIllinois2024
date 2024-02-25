@@ -1,3 +1,5 @@
+import RPi.GPIO
+RPi.GPIO.setmode(RPi.GPIO.BCM)
 
 from enum import Enum
 import functools
@@ -15,6 +17,7 @@ import numpy as np
 
 from phone_sensors import PhoneSensors
 import motor
+import distance_sensor
 
 def print_log_info(obj):
     print(obj)
@@ -133,7 +136,9 @@ class Motion:
         """
         self.loop_thread = None
         self.server_time = -1
-        self.phone_sensors = PhoneSensors("10.194.232.216:8080")
+        # old, pixel 3
+        #self.phone_sensors = PhoneSensors("10.194.232.216:8080")
+        self.phone_sensors = PhoneSensors("10.194.21.169")
         self.started = False
 
     @xmlrpc_export(has_retval=True)
@@ -150,44 +155,69 @@ class Motion:
         Doesn't start the xmlrpc server.
         Starts the motion loop in a separate thread.
         """
-        def loop_func():
-            while self.started:
-                self.server_time = time.monotonic()
-                self._loop()
-                time.sleep(0.05)
+        if self.started:
+            return
 
-        self.started = True
-        self.loop_thread = Thread(group=None, target=loop_func, name="motion:loop")
-        self.loop_thread.start()
-        self.motor1 = motor_module.Motor({
+        self.motor1 = motor.Motor({
             "pins": {
                 "speed": 13,
                 "control1": 5,
                 "control2": 6
             }
         })
-        self.motor2 = motor_module.Motor({
+        self.motor2 = motor.Motor({
             "pins": {
                 "speed": 12,
                 "control1": 7,
                 "control2": 8
             }
         })
+        self.distance1 = distance_sensor.DistanceSensor({
+            "pins": {
+                "echo": 23,
+                "trigger": 24
+            }
+        })
         self.motor1.stop()
         self.motor2.stop()
+        self.v1 = 0
+        self.v2 = 0
+
+        def loop_func():
+            self.started = True
+            with open("motion.log", 'w') as logfile:
+                while self.started:
+                    self._loop()
+                    self.server_time = time.monotonic()
+                    log_data = {
+                        "time": self.server_time,
+                        "cmd_vel": [self.v1, self.v2],
+                        "imu": self.phone_sensors.get_latest_data(),
+                        "pose": self.phone_sensors.pose.tolist(),
+                        "vel": self.phone_sensors.get_vel()
+                    }
+                    print(json.dumps(log_data), file=logfile, flush=True)
+                    time.sleep(0.01)
+
+        self.phone_sensors.startup()
+        self.loop_thread = Thread(group=None, target=loop_func, name="motion:loop")
+        self.loop_thread.start()
+        while not self.started:
+            time.sleep(1)
 
     def _loop(self):
         """Main loop of motion. Should poll sensors and push commands to component drivers."""
-        self.phone_sensors.loop()
-
-    @xmlrpc_export
-    def get_sensor_data(self):
-        return self.phone_sensors.get_all_data()
+        self.phone_sensors.sync(self.v1 + self.v2)
 
     @xmlrpc_export
     def shutdown(self):
         """Shut down the motion xml rpc server. Shuts down each component and updates status of the robot."""
+        if not self.started:
+            return
         self.started = False
+        self.motor1.stop()
+        self.motor2.stop()
+        self.phone_sensors.shutdown()
         self.loop_thread.join()
         self.loop_thread = None
 
@@ -195,6 +225,28 @@ class Motion:
     def get_time(self):
         return self.server_time
 
+    @xmlrpc_export
+    def motor_command(self, v1, v2):
+        self.motor1.drive(abs(v1), v1 > 0)
+        self.v1 = v1
+        self.motor2.drive(abs(v2), v2 > 0)
+        self.v2 = v2
+    
+    @xmlrpc_export
+    def get_motor_powers(self):
+        return list(self.v1, self.v2)
+
+    @xmlrpc_export
+    def get_ultrasonic_data(self):
+        return self.distance1.distance
+
+    @xmlrpc_export
+    def get_vel(self):
+        return self.phone_sensors.get_vel()
+
+    @xmlrpc_export
+    def get_pos(self):
+        return self.phone_sensors.pose
 
 if __name__ == "__main__":
     import faulthandler

@@ -1,85 +1,128 @@
 import requests
+from threading import Thread
+import time
 
 import numpy as np
+import numpy.linalg as la
+from klampt.math import vectorops as vo, so3, se3
 
-from utils.plot_ringbuffer import ArrayRingBuffer
-from utils.math import *
+try:
+    from src.utils.plot_ringbuffer import ArrayRingBuffer
+    from src.utils.math import *
+except ImportError:
+    from utils.plot_ringbuffer import ArrayRingBuffer
+    from utils.math import *
+
+def break_log(array):
+    return {
+        "rot": array[0],
+        "accel": array[1],
+    }
+
+PP_CHANNELS = ["gyrZ", "linY"]
 
 class PhoneSensors:
     
-    def __init__(self, address):
+    def __init__(self, address, port="8081"):
         self.address = address
-        self.data_buffer = np
-        # time, raw: accel, gravity, rotvec, rotvec_accuracy
-        self.data_buffer = ArrayRingBuffer(20, 1+3+3+5)
-        self.timestep = 0
-        self.latest_sensor_time = -1
+        self.port = port
+        self._data = np.zeros(2)    # temp buffer, synced to self.data on loop
+        self.data = np.zeros(2)
 
-    def loop(self):
-        x = requests.get(f"http://{self.address}/sensors.json").json()
-        _accels = x['accel']['data']
-        _gravs = x['gravity']['data']
-        _rots = x['rot_vector']['data']
+        # integrated only velocity
+        self.v_est = 0
+        self.power = 0
+        self.pose = np.zeros(3)
+        self.x = np.zeros(2)
+        self.P = np.array([1.0, 1.0])
+        self.theta = 0
+        self.loop_thread = None
+        self.started = False
+        self.prev_t = None
+    
+    def sync(self, power):
+        self.power = power
+        self.data = self._data
 
-        times = np.array([dat for dat, _ in _accels]) / 1000
-        accels = np.array([dat for _, dat in _accels])
+    def startup(self):
+        def loop_func():
+            self.started = True
+            self.prev_t = time.monotonic()
+            self._loop(None)
+            while self.started:
+                self._loop(time.monotonic())
+                time.sleep(0.01)
+        self.loop_thread = Thread(group=None, target=loop_func, name="phone_sensors:loop")
+        self.loop_thread.start()
+        while not self.started:
+            time.sleep(1)
 
-        grav_t = np.array([dat for dat, _ in _gravs]) / 1000
-        grav_dat = np.array([dat for _, dat in _gravs])
-        rot_t = np.array([dat for dat, _ in _rots]) / 1000
-        rot_dat = np.array([dat for _, dat in _rots])
+    def shutdown(self):
+        self.started = False
+        self.loop_thread.join()
+        self.loop_thread = None
 
-        # We want to be right handed
-        accels[:, 2] *= -1
-        grav_dat[:, 2] *= -1
+    def _loop(self, t):
+        req = requests.get(f"http://{self.address}:{self.port}/get?"+("&".join(PP_CHANNELS)))
+        x = req.json()['buffer']
+        if t is None:
+            return
 
-        # The index of the next reading to integrate.
-        # might equal length of array if there's no more readings to integrate.
-        idx = np.searchsorted(times, self.latest_sensor_time)+1
-        grav_idx = np.searchsorted(grav_t, self.latest_sensor_time)
-        rot_idx = np.searchsorted(rot_t, self.latest_sensor_time)
+        data = np.zeros(2)
+        for i, k in enumerate(PP_CHANNELS):
+            data[i] = x[k]['buffer'][0]
+        self._data = data.copy()
 
-        grav_time = grav_t[grav_idx]
-        grav_idx += 1
-        rot_time = rot_t[rot_idx]
-        rot_idx += 1
+        dt = t - self.prev_t
+        self.prev_t = t
 
-        # Synchronize to the acceleration buffer.
-        for i in range(idx, len(times)):
-            accel_time = times[i]
+        self.v_est += data[1] * dt
+        self.theta += data[0] * dt
 
-            while grav_time < accel_time:
-                if grav_idx == len(grav_t):
-                    break
-                grav_time = grav_t[grav_idx]
-                grav_idx += 1
-            while rot_time < accel_time:
-                if rot_idx == len(rot_t):
-                    break
-                rot_time = rot_t[rot_idx]
-                rot_idx += 1
-                
-            self.timestep += 1
+        self.kalman_filter(dt)
+        self.pose += np.array(self.get_vel()) * dt
 
-            if grav_idx == len(grav_t):
-                grav = grav_dat[grav_idx-1]
+    def kalman_filter(self, dt):
+        F = np.array([[1, dt], [0, 1]])
+        B = np.array([[dt], [0]])
+        H = np.array([[1, 0]])
+        Q = np.array([[0.5*self.power + 0.05, 0], [0, 0.0001]])
+        R = 0.1
+        
+        xhat = F @ self.x.reshape(-1, 1) + B * self.v_est
+        Phat = F @ self.P @ F.T + Q
+
+        def vel_model(power, v_prev, dt):
+            K1 = 1.5/3
+            K2 = 1
+            K3 = K1 * 0.7 - 0.15
+            dvdt = (K1 * power - v_prev)
+            if v_prev > 0:
+                dvdt = max(0, dvdt - K3)
+            elif v_prev < 0:
+                dvdt = min(0, dvdt + K3)
             else:
-                grav = interpolate(grav_t[grav_idx-1], grav_dat[grav_idx-1, :],
-                        grav_t[grav_idx-2], grav_dat[grav_idx-2, :],
-                        accel_time)
-            if rot_idx == len(rot_t):
-                rot = rot_dat[rot_idx-1]
-            else:
-                rot = interpolate(rot_t[rot_idx-1], rot_dat[rot_idx-1, :],
-                        rot_t[rot_idx-2], rot_dat[rot_idx-2, :],
-                        accel_time)
-            dat = [accel_time, *accels[i, :], *grav, *rot]
-            self.data_buffer.add_data(dat)
+                if dvdt > 0:
+                    dvdt = max(0, dvdt - K3)
+                else:
+                    dvdt = min(0, dvdt + K3)
+            return v_prev + K2 * dvdt * dt
 
-        self.latest_sensor_time = times[-1]
+        z = vel_model(self.power, self.x[0], dt)
+        y = z - H @ xhat
+        #y = z - xhat[0]
+        S = H @ Phat @ H.T + R
+        K = Phat @ H.T * (1/S)
+
+        self.x = (xhat + K * y)[:, 0]
+        self.P = (np.eye(2) - K @ H) @ Phat
 
     def get_latest_data(self):
-        return self.data_buffer.get_data()[-1, :]
+        if self.data is None:
+            return None
+        return self.data.tolist()
 
-    def get_all_data(self):
-        return self.data_buffer.get_data()
+    def get_vel(self):
+        ret = [self.x[0] * np.cos(self.theta), self.x[0] * np.sin(self.theta), self.data[0]]
+        print(ret)
+        return ret

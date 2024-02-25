@@ -98,6 +98,7 @@ if __name__ == "__main__":
         print(robot.ping())
         print(robot.get_time())
         print(robot.get_sensor_data())
+        robot.motor_command(0.1, 0.1)
         time.sleep(2)
         continue
     robot.shutdown()

@@ -6,7 +6,7 @@ import numpy as np
 #print('connecting to camera')
 #cam = cv2.VideoCapture(0)
 print('connecting to camera stream')
-stream_url = "http://10.194.232.216:8080/video"
+stream_url = "http://10.194.21.169:8080/video"
 
 KEY_ESC = 27
 
