@@ -49,8 +49,14 @@ class Position(Resource):
     def post(self):
         global positionglb
         global positionstamp
-        json_data = json.loads(request.get_json(force=True))
-        positionglb = json_data['pose']
+        raw = request.get_data()
+        text = raw.decode('ascii')
+        obj = json.loads(text)
+        posearray = obj['pose'][1:-1].split(", ")
+        for i in range(len(posearray)):
+            posearray[i] = float(posearray[i])
+        positionglb = np.array(posearray).reshape((4, 4)).tolist()
+        positionstamp = obj['time']
         return {'pose': positionglb, 'time': positionstamp}
 
 class RSSI(Resource):

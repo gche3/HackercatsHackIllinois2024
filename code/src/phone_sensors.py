@@ -19,7 +19,7 @@ def break_log(array):
         "accel": array[1],
     }
 
-PP_CHANNELS = ["gyrZ", "linY"]
+PP_CHANNELS = ["gyrX", "linZ"]
 
 class PhoneSensors:
     
@@ -71,6 +71,7 @@ class PhoneSensors:
         data = np.zeros(2)
         for i, k in enumerate(PP_CHANNELS):
             data[i] = x[k]['buffer'][0]
+        data[1] *= -1
         self._data = data.copy()
 
         dt = t - self.prev_t
@@ -83,11 +84,11 @@ class PhoneSensors:
         self.pose += np.array(self.get_vel()) * dt
 
     def kalman_filter(self, dt):
-        F = np.array([[1, dt], [0, 1]])
+        F = np.array([[1, -dt], [0, 1]])
         B = np.array([[dt], [0]])
         H = np.array([[1, 0]])
-        Q = np.array([[0.5*self.power + 0.05, 0], [0, 0.0001]])
-        R = 0.1
+        Q = np.array([[0.5, 0], [0, 0.0001]])
+        R = 0.001
         
         xhat = F @ self.x.reshape(-1, 1) + B * self.v_est
         Phat = F @ self.P @ F.T + Q
@@ -98,15 +99,21 @@ class PhoneSensors:
             K3 = K1 * 0.7 - 0.15
             dvdt = (K1 * power - v_prev)
             if v_prev > 0:
-                dvdt = max(0, dvdt - K3)
+                if dvdt > 0:
+                    dv = K2 * max(0, dvdt - K3) * dt
+                else:
+                    dv = (dvdt-min(K3, v_prev)) * dt
             elif v_prev < 0:
-                dvdt = min(0, dvdt + K3)
+                if dvdt < 0:
+                    dv = K2 * min(0, dvdt + K3) * dt
+                else:
+                    dv = (dvdt+min(K3, -v_prev)) * dt
             else:
                 if dvdt > 0:
-                    dvdt = max(0, dvdt - K3)
+                    dv = K2 * max(0, dvdt - K3) * dt
                 else:
-                    dvdt = min(0, dvdt + K3)
-            return v_prev + K2 * dvdt * dt
+                    dv = K2 * min(0, dvdt + K3) * dt
+            return v_prev + dv
 
         z = vel_model(self.power, self.x[0], dt)
         y = z - H @ xhat
@@ -124,5 +131,4 @@ class PhoneSensors:
 
     def get_vel(self):
         ret = [self.x[0] * np.cos(self.theta), self.x[0] * np.sin(self.theta), self.data[0]]
-        print(ret)
         return ret

@@ -5,9 +5,9 @@ robot = MotionClient()
 robot.startup()
 
 powers = [0.7, 0.8, 0.9, 1]
-
+robot.motor_command(0, 0)
 for power in powers:
     input(f"Enter to try power {power}: ")
-    robot.motor_command(-power, power)
+    robot.motor_command(power, -power)
     time.sleep(2)
     robot.motor_command(0, 0)

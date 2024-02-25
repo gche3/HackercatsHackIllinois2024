@@ -160,16 +160,16 @@ class Motion:
 
         self.motor1 = motor.Motor({
             "pins": {
-                "speed": 13,
-                "control1": 5,
-                "control2": 6
+                "speed": 12,
+                "control1": 7,
+                "control2": 8
             }
         })
         self.motor2 = motor.Motor({
             "pins": {
-                "speed": 12,
-                "control1": 7,
-                "control2": 8
+                "speed": 13,
+                "control1": 5,
+                "control2": 6
             }
         })
         self.distance1 = distance_sensor.DistanceSensor({
@@ -207,7 +207,7 @@ class Motion:
 
     def _loop(self):
         """Main loop of motion. Should poll sensors and push commands to component drivers."""
-        self.phone_sensors.sync(self.v1 + self.v2)
+        self.phone_sensors.sync((self.v1 + self.v2) / 2)
 
     @xmlrpc_export
     def shutdown(self):
@@ -229,7 +229,7 @@ class Motion:
     def motor_command(self, v1, v2):
         self.motor1.drive(abs(v1), v1 > 0)
         self.v1 = v1
-        self.motor2.drive(abs(v2), v2 > 0)
+        self.motor2.drive(abs(v2), v2 < 0)
         self.v2 = v2
     
     @xmlrpc_export
